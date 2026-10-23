@@ -1,4 +1,5 @@
 using RedisCourse.Api.Repositories;
+using RedisCourse.Api.Services;
 using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -11,6 +12,8 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(
     ConnectionMultiplexer.Connect(redisConnectionString));
 
 builder.Services.AddSingleton<FakeProductRepository>();
+
+builder.Services.AddHostedService<ProductUpdateSubscriber>();
 
 // Add services to the container.
 

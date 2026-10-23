@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using RedisCourse.Api.Events;
 using RedisCourse.Api.Models;
 using RedisCourse.Api.Repositories;
 using StackExchange.Redis;
@@ -12,10 +13,14 @@ public class ProductsController : ControllerBase
 {
     private readonly IDatabase _redisDatabase;
     private readonly FakeProductRepository _repository;
+    private readonly ISubscriber _subscriber;
 
-    public ProductsController(    IConnectionMultiplexer redis, FakeProductRepository repository)
+    public ProductsController(
+     IConnectionMultiplexer redis,
+     FakeProductRepository repository)
     {
         _redisDatabase = redis.GetDatabase();
+        _subscriber = redis.GetSubscriber();
         _repository = repository;
     }
 
@@ -160,6 +165,19 @@ public class ProductsController : ControllerBase
 
         // 2. Cache invalidation
         await _redisDatabase.KeyDeleteAsync($"product:{id}");
+
+        var productUpdatedEvent = new ProductUpdatedEvent
+        {
+            ProductId = id,
+            EventType = "ProductUpdated",
+            Price = product.Price
+        };
+
+        var eventJson = JsonSerializer.Serialize(productUpdatedEvent);
+
+        await _subscriber.PublishAsync(
+            RedisChannel.Literal("product-updates"),
+            eventJson);
 
         return NoContent();
     }
