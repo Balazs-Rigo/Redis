@@ -23,11 +23,19 @@ public class ProductsController : ControllerBase
     public async Task<IActionResult> Get(int id)
     {
         var cacheKey = $"product:{id}";
+        const string NotFoundCacheValue = "__NOT_FOUND__";
 
         var cachedProduct = await _redisDatabase.StringGetAsync(cacheKey);
 
         if (!cachedProduct.IsNull)
         {
+            if (cachedProduct == NotFoundCacheValue)
+            {
+                Console.WriteLine($"NEGATIVE CACHE HIT - Product {id}");
+
+                return NotFound();
+            }
+
             var productFromCache =
                 JsonSerializer.Deserialize<Product>(cachedProduct.ToString());
 
@@ -106,15 +114,22 @@ public class ProductsController : ControllerBase
 
             if (productFromDatabase is null)
             {
+                await _redisDatabase.StringSetAsync(
+                    cacheKey,
+                    NotFoundCacheValue,
+                    TimeSpan.FromSeconds(30));
+
+                Console.WriteLine($"NEGATIVE CACHE SET - Product {id}");
+
                 return NotFound();
             }
 
             var json = JsonSerializer.Serialize(productFromDatabase);
 
-            await _redisDatabase.StringSetAsync(
-                cacheKey,
-                json,
-                TimeSpan.FromMinutes(5));
+            var cacheTtl = TimeSpan.FromMinutes(5)
+               + TimeSpan.FromSeconds(Random.Shared.Next(0, 61));
+
+            await _redisDatabase.StringSetAsync(cacheKey, json, cacheTtl);
 
             return Ok(new
             {
