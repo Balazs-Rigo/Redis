@@ -71,36 +71,68 @@ public class ProductsController : ControllerBase
                         Product = productFromCache
                     });
                 }
+
+                // A cache még üres.
+                // Megpróbáljuk megszerezni a lockot.
+                lockAcquired = await _redisDatabase.LockTakeAsync(
+                    lockKey,
+                    lockValue,
+                    TimeSpan.FromSeconds(5));
+
+                if (lockAcquired)
+                {
+                    Console.WriteLine(
+                        $"LOCK ACQUIRED AFTER WAIT - {lockValue}");
+
+                    break;
+                }
+            }
+
+            if (!lockAcquired)
+            {
+                Console.WriteLine(
+                    $"LOCK NOT ACQUIRED AFTER RETRIES - {lockValue}");
+
+                return StatusCode(
+                    StatusCodes.Status503ServiceUnavailable,
+                    "Could not acquire lock.");
             }
         }
 
-        // Egyelőre ez szimulálja az adatbázist.
-        var productFromDatabase = await _repository.GetByIdAsync(id);
-
-        if (productFromDatabase is null)
+        try
         {
-            return NotFound();
+            // Egyelőre ez szimulálja az adatbázist.
+            var productFromDatabase = await _repository.GetByIdAsync(id);
+
+            if (productFromDatabase is null)
+            {
+                return NotFound();
+            }
+
+            var json = JsonSerializer.Serialize(productFromDatabase);
+
+            await _redisDatabase.StringSetAsync(
+                cacheKey,
+                json,
+                TimeSpan.FromMinutes(5));
+
+            return Ok(new
+            {
+                Source = "Database",
+                Product = productFromDatabase
+            });
         }
-
-        var json = JsonSerializer.Serialize(productFromDatabase);
-
-        await _redisDatabase.StringSetAsync(
-            cacheKey,
-            json,
-            TimeSpan.FromMinutes(5));
-
-        if (lockAcquired)
+        finally
         {
-            await _redisDatabase.LockReleaseAsync(lockKey, lockValue);
+            if (lockAcquired)
+            {
+                await _redisDatabase.LockReleaseAsync(
+                    lockKey,
+                    lockValue);
 
-            Console.WriteLine($"LOCK RELEASED - {lockValue}");
+                Console.WriteLine($"LOCK RELEASED - {lockValue}");
+            }
         }
-
-        return Ok(new
-        {
-            Source = "Database",
-            Product = productFromDatabase
-        });
     }
 
     [HttpPut("{id:int}")]
