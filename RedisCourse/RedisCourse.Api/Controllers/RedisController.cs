@@ -68,4 +68,62 @@ public class RedisController : ControllerBase
 
         return Ok();
     }
+
+    [HttpPost("batch")]
+    public async Task<IActionResult> Batch()
+    {
+        var batch = _redisDatabase.CreateBatch();
+        var tasks = new List<Task>();
+
+        for (var i = 1; i <= 1000; i++)
+        {
+            tasks.Add(
+                batch.StringSetAsync(
+                    $"batch:test:{i}",
+                    $"value-{i}"));
+        }
+
+        batch.Execute();
+
+        await Task.WhenAll(tasks);
+
+        return Ok();
+    }
+
+    [HttpPost("transaction")]
+    public async Task<IActionResult> Transaction()
+    {
+        const string key = "account:balance";
+
+        var currentBalance = await _redisDatabase.StringGetAsync(key);
+
+        if (!currentBalance.TryParse(out int balance))
+        {
+            return BadRequest("Balance is missing or invalid.");
+        }
+
+        var newBalance = balance - 100;
+
+        var transaction = _redisDatabase.CreateTransaction();
+
+        transaction.AddCondition(Condition.StringEqual(key, balance));
+
+        _ = transaction.StringSetAsync(
+            key,
+            newBalance);
+
+        var success = await transaction.ExecuteAsync();
+
+        if (!success)
+        {
+            return Conflict(
+                "Balance changed before the transaction could be executed.");
+        }
+
+        return Ok(new
+        {
+            OldBalance = balance,
+            NewBalance = newBalance
+        });
+    }
 }
