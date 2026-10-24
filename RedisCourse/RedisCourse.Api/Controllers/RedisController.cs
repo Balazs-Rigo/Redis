@@ -37,4 +37,35 @@ public class RedisController : ControllerBase
 
         return Ok(value.ToString());
     }
+
+    [HttpPost("sequential")]
+    public async Task<IActionResult> Sequential()
+    {
+        for (var i = 1; i <= 1000; i++)
+        {
+            await _redisDatabase.StringSetAsync(
+                $"pipeline:test:{i}",
+                $"value-{i}");
+        }
+
+        return Ok();
+    }
+
+    [HttpPost("pipelined")]
+    public async Task<IActionResult> Pipelined()
+    {
+        var tasks = new List<Task>();
+
+        for (var i = 1; i <= 1000; i++)
+        {
+            tasks.Add(
+                _redisDatabase.StringSetAsync(
+                    $"pipeline:test:{i}",
+                    $"value-{i}"));
+        }
+
+        await Task.WhenAll(tasks);
+
+        return Ok();
+    }
 }
