@@ -35,11 +35,4 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-var endpointDataSource = app.Services.GetRequiredService<EndpointDataSource>();
-
-foreach (var endpoint in endpointDataSource.Endpoints)
-{
-    Console.WriteLine($"ENDPOINT: {endpoint.DisplayName}");
-}
-
 app.Run();
