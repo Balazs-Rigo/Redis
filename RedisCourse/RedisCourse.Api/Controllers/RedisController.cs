@@ -126,4 +126,38 @@ public class RedisController : ControllerBase
             NewBalance = newBalance
         });
     }
+
+    [HttpPost("lua-transfer")]
+    public async Task<IActionResult> LuaTransfer()
+    {
+        const string script = """
+        local balance = tonumber(redis.call('GET', KEYS[1]))
+        local amount = tonumber(ARGV[1])
+
+        if balance >= amount then
+            redis.call('DECRBY', KEYS[1], amount)
+            redis.call('INCRBY', KEYS[2], amount)
+            return 1
+        else
+            return 0
+        end
+        """;
+
+        var result = await _redisDatabase.ScriptEvaluateAsync(
+            script,
+            new RedisKey[]
+            {
+            "lua:account:balazs",
+            "lua:account:peter"
+            },
+            new RedisValue[]
+            {
+            300
+            });
+
+        return Ok(new
+        {
+            Success = (int)result == 1
+        });
+    }
 }
