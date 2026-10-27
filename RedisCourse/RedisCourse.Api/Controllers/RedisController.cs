@@ -160,4 +160,56 @@ public class RedisController : ControllerBase
             Success = (int)result == 1
         });
     }
+
+    [HttpPost("json-product")]
+    public async Task<IActionResult> SetJsonProduct()
+    {
+        const string key = "product:json:42";
+
+        const string json = """
+        {
+            "id": 42,
+            "name": "RTX 5070 Ti",
+            "price": 350000,
+            "manufacturer": {
+                "name": "MSI",
+                "country": "Taiwan"
+            }
+        }
+        """;
+
+        await _redisDatabase.ExecuteAsync(
+            "JSON.SET",
+            key,
+            "$",
+            json);
+
+        return Ok();
+    }
+
+    [HttpGet("json-product/manufacturer")]
+    public async Task<IActionResult> GetJsonProductManufacturer()
+    {
+        var result = await _redisDatabase.ExecuteAsync(
+            "JSON.GET",
+            "product:json:42",
+            "$.manufacturer.name");
+
+        return Ok(result.ToString());
+    }
+
+    [HttpPut("json-product/price/{price:int}")]
+    public async Task<IActionResult> UpdateJsonProductPrice(int price)
+    {
+        await _redisDatabase.ExecuteAsync(
+            "JSON.SET",
+            "product:json:42",
+            "$.price",
+            price);
+
+        return Ok(new
+        {
+            Price = price
+        });
+    }
 }
