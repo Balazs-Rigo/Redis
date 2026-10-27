@@ -212,4 +212,27 @@ public class RedisController : ControllerBase
             Price = price
         });
     }
+
+    [HttpGet("search-products")]
+    public async Task<IActionResult> SearchProducts(
+    string manufacturer,
+    int maxPrice,
+    int page = 1,
+    int pageSize = 20)
+    {
+        var query =
+            $"@manufacturer:{{{manufacturer}}} @price:[-inf {maxPrice}]";
+
+        var offset = (page - 1) * pageSize;
+
+        var result = await _redisDatabase.ExecuteAsync(
+            "FT.SEARCH",
+            "idx:products",
+            query,
+            "LIMIT",
+            offset,
+            pageSize);
+
+        return Ok(result.ToString());
+    }
 }
