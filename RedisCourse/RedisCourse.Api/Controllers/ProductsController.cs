@@ -30,7 +30,28 @@ public class ProductsController : ControllerBase
         var cacheKey = $"product:{id}";
         const string NotFoundCacheValue = "__NOT_FOUND__";
 
-        var cachedProduct = await _redisDatabase.StringGetAsync(cacheKey);
+        var redisAvailable = true;
+
+        RedisValue cachedProduct = RedisValue.Null;
+
+        try
+        {
+            cachedProduct = await _redisDatabase.StringGetAsync(cacheKey);
+        }
+        catch (RedisConnectionException ex)
+        {
+            redisAvailable = false;
+
+            Console.WriteLine(
+                $"REDIS CONNECTION ERROR - Falling back to database: {ex.Message}");
+        }
+        catch (RedisTimeoutException ex)
+        {
+            redisAvailable = false;
+
+            Console.WriteLine(
+                $"REDIS TIMEOUT - Falling back to database: {ex.Message}");
+        }
 
         if (!cachedProduct.IsNull)
         {
@@ -54,15 +75,25 @@ public class ProductsController : ControllerBase
         var lockKey = $"lock:product:{id}";
         var lockValue = Guid.NewGuid().ToString();
 
-        var lockAcquired = await _redisDatabase.LockTakeAsync(
-            lockKey,
-            lockValue,
-            TimeSpan.FromSeconds(5));
+        var lockAcquired = false;
 
-        Console.WriteLine(
-            $"LOCK {(lockAcquired ? "ACQUIRED" : "FAILED")} - {lockValue}");
+        if (redisAvailable)
+        {
+            lockAcquired = await _redisDatabase.LockTakeAsync(
+                lockKey,
+                lockValue,
+                TimeSpan.FromSeconds(5));
 
-        if (!lockAcquired)
+            Console.WriteLine(
+                $"LOCK {(lockAcquired ? "ACQUIRED" : "FAILED")} - {lockValue}");
+        }
+        else
+        {
+            Console.WriteLine(
+                $"REDIS UNAVAILABLE - Skipping distributed lock for Product {id}");
+        }
+
+        if (redisAvailable && !lockAcquired)
         {
             for (var attempt = 1; attempt <= 15; attempt++)
             {
@@ -75,8 +106,17 @@ public class ProductsController : ControllerBase
 
                 if (!cachedAfterWait.IsNull)
                 {
+                    if (cachedAfterWait == NotFoundCacheValue)
+                    {
+                        Console.WriteLine(
+                            $"NEGATIVE CACHE HIT AFTER WAIT - Product {id}");
+
+                        return NotFound();
+                    }
+
                     var productFromCache =
-                        JsonSerializer.Deserialize<Product>(cachedAfterWait.ToString());
+                        JsonSerializer.Deserialize<Product>(
+                            cachedAfterWait.ToString());
 
                     return Ok(new
                     {
@@ -119,12 +159,28 @@ public class ProductsController : ControllerBase
 
             if (productFromDatabase is null)
             {
-                await _redisDatabase.StringSetAsync(
-                    cacheKey,
-                    NotFoundCacheValue,
-                    TimeSpan.FromSeconds(30));
+                if (redisAvailable)
+                {
+                    try
+                    {
+                        await _redisDatabase.StringSetAsync(
+                            cacheKey,
+                            NotFoundCacheValue,
+                            TimeSpan.FromSeconds(30));
 
-                Console.WriteLine($"NEGATIVE CACHE SET - Product {id}");
+                        Console.WriteLine($"NEGATIVE CACHE SET - Product {id}");
+                    }
+                    catch (RedisConnectionException ex)
+                    {
+                        Console.WriteLine(
+                            $"REDIS NEGATIVE CACHE WRITE FAILED - Ignoring: {ex.Message}");
+                    }
+                    catch (RedisTimeoutException ex)
+                    {
+                        Console.WriteLine(
+                            $"REDIS NEGATIVE CACHE WRITE TIMEOUT - Ignoring: {ex.Message}");
+                    }
+                }
 
                 return NotFound();
             }
@@ -134,7 +190,26 @@ public class ProductsController : ControllerBase
             var cacheTtl = TimeSpan.FromMinutes(5)
                + TimeSpan.FromSeconds(Random.Shared.Next(0, 61));
 
-            await _redisDatabase.StringSetAsync(cacheKey, json, cacheTtl);
+            if (redisAvailable)
+            {
+                try
+                {
+                    await _redisDatabase.StringSetAsync(
+                        cacheKey,
+                        json,
+                        cacheTtl);
+                }
+                catch (RedisConnectionException ex)
+                {
+                    Console.WriteLine(
+                        $"REDIS CACHE WRITE FAILED - Ignoring: {ex.Message}");
+                }
+                catch (RedisTimeoutException ex)
+                {
+                    Console.WriteLine(
+                        $"REDIS CACHE WRITE TIMEOUT - Ignoring: {ex.Message}");
+                }
+            }
 
             return Ok(new
             {
@@ -146,11 +221,24 @@ public class ProductsController : ControllerBase
         {
             if (lockAcquired)
             {
-                await _redisDatabase.LockReleaseAsync(
-                    lockKey,
-                    lockValue);
+                try
+                {
+                    await _redisDatabase.LockReleaseAsync(
+                        lockKey,
+                        lockValue);
 
-                Console.WriteLine($"LOCK RELEASED - {lockValue}");
+                    Console.WriteLine($"LOCK RELEASED - {lockValue}");
+                }
+                catch (RedisConnectionException ex)
+                {
+                    Console.WriteLine(
+                        $"REDIS LOCK RELEASE FAILED - Lock will expire by TTL: {ex.Message}");
+                }
+                catch (RedisTimeoutException ex)
+                {
+                    Console.WriteLine(
+                        $"REDIS LOCK RELEASE TIMEOUT - Lock will expire by TTL: {ex.Message}");
+                }
             }
         }
     }

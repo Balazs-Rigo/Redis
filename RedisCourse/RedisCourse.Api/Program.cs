@@ -8,8 +8,12 @@ var redisConnectionString =
     builder.Configuration.GetConnectionString("Redis")
     ?? throw new InvalidOperationException("Redis connection string is missing.");
 
+var redisOptions = ConfigurationOptions.Parse(redisConnectionString);
+
+redisOptions.AbortOnConnectFail = false;
+
 builder.Services.AddSingleton<IConnectionMultiplexer>(
-    ConnectionMultiplexer.Connect(redisConnectionString));
+    ConnectionMultiplexer.Connect(redisOptions));
 
 builder.Services.AddSingleton<FakeProductRepository>();
 

@@ -14,43 +14,65 @@ public class ProductUpdateSubscriber : BackgroundService
     }
 
     protected override async Task ExecuteAsync(
-        CancellationToken stoppingToken)
+    CancellationToken stoppingToken)
     {
         var subscriber = _redis.GetSubscriber();
 
-        await subscriber.SubscribeAsync(
-            RedisChannel.Literal("product-updates"),
-            (channel, message) =>
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
             {
-                try
-                {
-                    var productUpdatedEvent =
-                        JsonSerializer.Deserialize<ProductUpdatedEvent>(
-                            message.ToString());
-
-                    if (productUpdatedEvent is null)
+                await subscriber.SubscribeAsync(
+                    RedisChannel.Literal("product-updates"),
+                    (channel, message) =>
                     {
-                        return;
-                    }
+                        try
+                        {
+                            var productUpdatedEvent =
+                                JsonSerializer.Deserialize<ProductUpdatedEvent>(
+                                    message.ToString());
 
-                    Console.WriteLine(
-                        $".NET SUBSCRIBER RECEIVED - " +
-                        $"ProductId: {productUpdatedEvent.ProductId}, " +
-                        $"EventType: {productUpdatedEvent.EventType}, " +
-                        $"Price: {productUpdatedEvent.Price}");
-                }
-                catch (JsonException ex)
-                {
-                    Console.WriteLine(
-                        $"INVALID MESSAGE: {message}");
+                            if (productUpdatedEvent is null)
+                            {
+                                return;
+                            }
 
-                    Console.WriteLine(
-                        $"JSON ERROR: {ex.Message}");
-                }
-            });
+                            Console.WriteLine(
+                                $".NET SUBSCRIBER RECEIVED - " +
+                                $"ProductId: {productUpdatedEvent.ProductId}, " +
+                                $"EventType: {productUpdatedEvent.EventType}, " +
+                                $"Price: {productUpdatedEvent.Price}");
+                        }
+                        catch (JsonException ex)
+                        {
+                            Console.WriteLine(
+                                $"INVALID MESSAGE: {message}");
 
-        await Task.Delay(
-            Timeout.Infinite,
-            stoppingToken);
+                            Console.WriteLine(
+                                $"JSON ERROR: {ex.Message}");
+                        }
+                    });
+
+                Console.WriteLine("REDIS SUBSCRIBER CONNECTED");
+
+                await Task.Delay(
+                    Timeout.Infinite,
+                    stoppingToken);
+            }
+            catch (RedisConnectionException ex)
+            {
+                Console.WriteLine(
+                    $"REDIS SUBSCRIBER CONNECTION ERROR - retrying: {ex.Message}");
+            }
+            catch (RedisTimeoutException ex)
+            {
+                Console.WriteLine(
+                    $"REDIS SUBSCRIBER TIMEOUT - retrying: {ex.Message}");
+            }
+
+            await Task.Delay(
+                TimeSpan.FromSeconds(2),
+                stoppingToken);
+        }
     }
 }
